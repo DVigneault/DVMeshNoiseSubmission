@@ -8,3 +8,7 @@
 *.pdf
 *.ps
 *.toc
+
+bin/
+data/
+*.swp

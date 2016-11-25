@@ -1,0 +1,201 @@
+
+\documentclass{InsightArticle}
+
+%\usepackage[dvips]{graphicx}
+\usepackage{graphicx}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+%  hyperref should be the last package to be loaded.
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%\usepackage[dvips,
+\usepackage[
+bookmarks,
+bookmarksopen,
+backref,
+colorlinks,linkcolor={blue},citecolor={blue},urlcolor={blue},
+]{hyperref}
+
+
+%  This is a template for Papers to the Insight Journal.
+%  It is comparable to a technical report format.
+
+% The title should be descriptive enough for people to be able to find
+% the relevant document.
+\title{Perturbing Mesh Vertices with Additive Gaussian Noise}
+
+% FIXME
+\newcommand{\IJhandlerIDnumber}{xxxx}
+
+\release{0.00}
+
+% At minimum, give your name and an email address.  You can include a
+% snail-mail address if you like.
+%\author{Davis M. Vigneault,$^{1,2,3}$, David A. Bluemke, MD, PhD,$^{2}$, and J. Alison Noble, PhD$^{1}$}
+\author{Davis M. Vigneault$^{1,2,3}$}
+\authoraddress{$^{1}$Institute of Biomedical Engineering, Department of Engineering Science, University of Oxford, Oxford, United Kingdom.\\
+                $^{2}$Department of Radiology and Imaging Sciences, Clinical Center, National Institutes of Health, Bethesda, MD, United States.\\
+                $^{3}$Sackler School of Graduate Biomedical Sciences, Tufts University School of Medicine, Boston, MA, United States.}
+
+\begin{document}
+
+%
+% Add hyperlink to the web location and license of the paper.
+% The argument of this command is the handler identifier given
+% by the Insight Journal to this paper.
+%
+\IJhandlefooter{\IJhandlerIDnumber}
+
+
+\ifpdf
+\else
+   %
+   % Commands for including Graphics when using latex
+   %
+   \DeclareGraphicsExtensions{.eps,.jpg,.gif,.tiff,.bmp,.png}
+   \DeclareGraphicsRule{.jpg}{eps}{.jpg.bb}{`convert #1 eps:-}
+   \DeclareGraphicsRule{.gif}{eps}{.gif.bb}{`convert #1 eps:-}
+   \DeclareGraphicsRule{.tiff}{eps}{.tiff.bb}{`convert #1 eps:-}
+   \DeclareGraphicsRule{.bmp}{eps}{.bmp.bb}{`convert #1 eps:-}
+   \DeclareGraphicsRule{.png}{eps}{.png.bb}{`convert #1 eps:-}
+\fi
+
+
+\maketitle
+
+
+\ifhtml
+\chapter*{Front Matter\label{front}}
+\fi
+
+
+% The abstract should be a paragraph or two long, and describe the
+% scope of the document.
+\begin{abstract}
+\noindent
+This brief document provides an introduction to an external \href{wwwk.itk.org}{ITK} module, \code{DVMeshNoise}.  This module provides classes for perturbing the positions of the vertices of either an \doxygen{Mesh} or \doxygen{QuadEdgeMesh} with Gaussian noise.  This may be useful in testing the robustness of an algorithm to small changes in the input mesh, augmenting datasets for machine learning, and counteracting deleterious effects which highly regular regions of a mesh may occasionally have on mesh processing.  After demonstrating basic usage, we present a practical example to show how these classes can be incorporated into a pipeline to improve mesh quality.
+
+\end{abstract}
+
+\IJhandlenote{\IJhandlerIDnumber}
+
+\tableofcontents
+
+
+\section{Interface and Basic Usage}
+
+To illustrate basic usage, we generate a sphere, perturb the vertices with Gaussian noise, and write the ``clean'' and ``noisy'' meshes to file.  We begin with the necessary \code{include}s and \code{typedef}s.
+
+\begin{verbatim}
+#include <itkMesh.h>
+#include <itkRegularSphereMeshSource.h>
+#include <itkAdditiveGaussianNoiseMeshFilter.h>
+#include <itkMeshFileWriter.h>
+
+typedef double     TPixel;
+const unsigned int Dimension = 3;
+
+typedef itk::Mesh< TPixel, Dimension > TMesh;
+typedef itk::RegularSphereMeshSource< TMesh > TSphere;
+typedef itk::AdditiveGaussianNoiseMeshFilter< TMesh, TMesh > TNoise;
+typedef itk::MeshFileWriter< TMesh > TMeshWriter;
+\end{verbatim}
+
+We have chosen to illustrate our pipeline using an \code{itk::Mesh}, as this is expected to the most common use case in the community.  However, if we had instead required an \code{itk::QuadEdgeMesh}, we would have included \code{itkAdditiveGaussianNoiseQuadEdgeMeshFilter.h} and adjusted our \code{typedef}s appropriately; all other steps are identical.
+
+Inside \code{main}, we generate a sphere and write it to file.
+
+\begin{verbatim}
+  const auto sphere = TSphere::New();
+  sphere->SetResolution( 2 );
+
+    {   
+    const auto writer = TMeshWriter::New();
+    writer->SetInput( sphere->GetOutput() );
+    writer->SetFileName( "../data/sphere.vtk" );
+    writer->Update();
+    }
+\end{verbatim}
+
+Next, we add Gaussian noise to the vertices (setting the mean, standard deviation, and seed), and write the perturbed mesh to file.
+
+\begin{verbatim}
+  const auto noise = TNoise::New();
+  noise->SetInput( sphere->GetOutput() );
+  noise->SetSeed( 0 );
+  noise->SetMean( 0.0 );
+  noise->SetSigma( 0.05 );
+
+    {
+    const auto writer = TMeshWriter::New();
+    writer->SetInput( noise->GetOutput() );
+    writer->SetFileName( "../data/sphere_noise.vtk" );
+    writer->Update();
+    }
+\end{verbatim}
+
+The meshes before and after perturbation are shown in Figure~\ref{fig:BasicUsage}.
+
+\begin{figure}
+\includegraphics[width=0.5\textwidth]{images/sphere_clean.png}
+\includegraphics[width=0.5\textwidth]{images/sphere_noise.png}
+\itkcaption[Interface and Basic Usage]{A sphere before (left) and after (right) perturbation with Gaussian noise.  We have visualized the meshes by displaying the wireframe (red) as well as the underlying Loop subdivision surface (pink).  The source code used to generate this visualization may be found in \code{dv-wireframe.cxx} and included files.}
+\label{fig:BasicUsage}
+\end{figure}
+
+\section{Application to Mesh Decimation}
+
+Generating a mesh from a binary image using marching cubes and decimating the result is a common motif in the analysis of volumetric medical images.  Perhaps surprisingly, the quality of the resulting mesh can suffer in regions with very high regularity, such as a perfectly flat area where a structure extends beyond the bounds of the volume.
+
+We begin by creating a spherical mesh using \doxygen{RegularSphereMeshSource} and converting the mesh to a binary image using \doxygen{TriangleMeshToBinaryImageFilter}.  We ensure that the region of the output image only partially overlaps with the sphere, and pad the output with \doxygen{ConstantPadImageFilter}, such that the binary image contains a portion which is perfectly flat.  Finally, we use \doxygen{BinaryMask3DMeshSource} to convert the binary image to a mesh.  The class which generates this mesh is contained in \code{dvGenerateHalfSphere.h}.
+
+We then use \doxygen{QuadricDecimationQuadEdgeMeshFilter} to decimate first the direct output of this algorithm, and second the output of this algorithm after perturbation by a small amount of Gaussian noise ($\sigma = 0.01$).  Cursory visual inspection suggests that mesh quality is significantly improved in the decimation of the perturbed mesh (Figure~\ref{fig:NoisyDecimation}) compared with the unperturbed mesh (Figure~\ref{fig:CleanDecimation}).  In particular, the broad, flat ``bottom'' of the sphere is particularly low quality in the original mesh, with very high valency vertices and overlapping triangles.
+
+In order to investigate the change in mesh quality, we chose three evaluation metrics: patch area (Figure~\ref{fig:Areas}), patch aspect ratio (Figure~\ref{fig:Ratios}), and valency (Figure~\ref{fig:Valencies}).  For each metric, we plot the histogram and normal probability plot for the unperturbed and perturbed meshes.  Histograms provide a generic way of visualizing distributions.  Normal probability plots, on the other hand, specifically assess normality by plotting each value against its theoretical quantile for a normally distributed dataset of the same mean and standard deviation; a perfectly normal dataset will lie along a straight line with a coefficient of determination $R^2$ of one.  In the unperturbed case, we find that the histograms have a high standard deviation and significant right skew, with instances of very high triangle area, aspect ratio, and valency.  In the perturbed case, we see that the distributions are narrower, with less right skew, indicating greater uniformity.  This assessment is confirmed by the normal probability plots, where in each case the coefficient of determination is nearer to unity with perturbation than without.
+
+\begin{figure}
+\includegraphics[width=0.5\textwidth]{images/half_sphere_clean_decimated_0.png}
+\includegraphics[width=0.5\textwidth]{images/half_sphere_clean_decimated_1.png}
+\itkcaption[Decimation of an Unperturbed Half Sphere]{Decimation of the output of a marching cubes mesh generation algorithm results in visually low-quality meshes.  We note particular difficulty on the ``clean'' half of the sphere, with overlapping triangles and areas with very high valency.}
+\label{fig:CleanDecimation}
+\end{figure}
+
+\begin{figure}
+\includegraphics[width=0.5\textwidth]{images/half_sphere_noise_decimated_0.png}
+\includegraphics[width=0.5\textwidth]{images/half_sphere_noise_decimated_1.png}
+\itkcaption[Decimation of an Unperturbed Half Sphere]{Perturbation with Gaussian noise significantly improves the visual mesh quality of the decimation result compared with the unperturbed mesh, especially in highly regular regions.}
+\label{fig:NoisyDecimation}
+\end{figure}
+
+\begin{figure}
+\center
+\includegraphics[width=0.75\textwidth]{images/areas.png}
+\itkcaption[Distribution of Triangle Areas]{Distribution of patch areas in the clean and noisy meshes.}
+\label{fig:Areas}
+\end{figure}
+
+\begin{figure}
+\center
+\includegraphics[width=0.75\textwidth]{images/ratios.png}
+\itkcaption[Distribution of Triangle Aspect Ratios]{Distribution of patch aspect ratios in the clean and noisy meshes.}
+\label{fig:Ratios}
+\end{figure}
+
+\begin{figure}
+\center
+\includegraphics[width=0.75\textwidth]{images/valencies.png}
+\itkcaption[Distribution of Valencies]{Distribution of valencies in the clean and noisy meshes.}
+\label{fig:Valencies}
+\end{figure}
+
+\section{Conclusions}
+
+We have presented here two classes, allowing \code{itk::Mesh} and \code{itk::QuadEdgeMesh} instances to be perturbed by additive Gaussian noise.  Additionally, we have detailed a specific scenario where these classes can be used to quantitatively improve mesh quality by three independent metrics.  We hope that the ITK community will find this module useful, and of course welcome feedback and improvements.
+
+\section*{Acknowledgments}
+
+I'd like to thank my DPhil supervisors, Prof. J. Alison Noble, PhD, and Dr. David A. Bluemke, MD, PhD, for their guidence and support.  This work was funded by the NIH-Oxford Scholars Program and the NIH Intramural Research Program.
+
+\end{document}
