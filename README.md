@@ -20,7 +20,7 @@ Repository Contents:
 
 Notes:
 
-- An up-to-date version of `DVMeshNoise` will be maintained at https://github.com/DVigneault/DVMeshNoise/.
+- `DVMeshNoise` has been transfered to the InsightSoftwareConsortium, and can be found at https://github.com/InsightSoftwareConsortium/DVMeshNoise/.
 
 - `dv-basic-usage` generates the meshes used to generate figure 1.
 - `dv-decimation-error` generates the meshes used to generate figures 2 and 3, as well as the data used to generate figures 4, 5, and 6.
